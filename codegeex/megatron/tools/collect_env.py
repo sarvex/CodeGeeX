@@ -9,7 +9,7 @@ def main():
     for name in ENV_NAMES:
         if name in os.environ:
             value = os.environ[name]
-            s += "{}={}\n".format(name, value)
+            s += f"{name}={value}\n"
             print(f"{name}={value}")
         else:
             print(f"{name} is not set")

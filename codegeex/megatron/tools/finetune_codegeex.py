@@ -20,7 +20,7 @@ def model_provider(pre_process=True, post_process=True):
     """Build the model."""
 
     print_rank_0("building GPT model ...")
-    see_memory_usage(f"Before Building Model", force=True)
+    see_memory_usage("Before Building Model", force=True)
 
     args = get_args()
     with deepspeed.zero.Init(
@@ -61,7 +61,7 @@ def model_provider(pre_process=True, post_process=True):
                 num_tokentypes=0,
                 parallel_output=True,
             )
-            
+
             if args.load_state is not None:
                 timers = get_timers()
                 print_rank_0("Loading warmstarting model states ...")
@@ -80,8 +80,8 @@ def model_provider(pre_process=True, post_process=True):
                 model.load_state_dict(state_dict)
                 timers("load-model-states").stop()
                 timers.log(["load-model-states"])
-    see_memory_usage(f"After Building Model", force=True)
-    
+    see_memory_usage("After Building Model", force=True)
+
     return model
 
 
@@ -95,10 +95,7 @@ def get_batch(data_iterator):
     datatype = torch.int64
 
     # Broadcast data.
-    if data_iterator is not None:
-        data = next(data_iterator)
-    else:
-        data = None
+    data = next(data_iterator) if data_iterator is not None else None
     data_b = mpu.broadcast_data(keys, data, datatype)
 
     # Unpack.

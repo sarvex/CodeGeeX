@@ -10,9 +10,9 @@ RESOURCE_PACKAGE_NAME = __name__
 
 class Kernel:
     def __init__(self, filename: str, function_names: List[str]):
-        filename = filename + ".fatbin"
+        filename += ".fatbin"
         if not pkg_resources.resource_exists(RESOURCE_PACKAGE_NAME, filename):
-            raise RuntimeError("File `%s` not found in `%s`" % (filename, RESOURCE_PACKAGE_NAME))
+            raise RuntimeError(f"File `{filename}` not found in `{RESOURCE_PACKAGE_NAME}`")
         self.filename = filename
         self.code = pkg_resources.resource_string(RESOURCE_PACKAGE_NAME, filename)
         self._function_names = function_names

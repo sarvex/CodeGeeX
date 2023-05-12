@@ -46,14 +46,13 @@ def process_humaneval_test(sample, problems, example_test=False):
         test_setup = "\n".join(IMPORT_HELPER["python"]) + "\n"
         test_string = test_setup + prompt + code + "\n" + test + "\n"
     elif language == "cpp":
-        test_set_up = ""
-        for s in IMPORT_HELPER["cpp"]:
-            if s not in prompt:
-                test_set_up += s + "\n"
+        test_set_up = "".join(
+            s + "\n" for s in IMPORT_HELPER["cpp"] if s not in prompt
+        )
         test_string = test_set_up + "\n" + prompt + code + "\n" + test
     elif language == "java":
         test_string = prompt + code + "\n" + test
-    elif language == "js" or language == "javascript":
+    elif language in ["js", "javascript"]:
         test_string = prompt + code + "\n" + test
     elif language == "go":
         import_string = problems[task_id]["import"]
@@ -67,7 +66,7 @@ def process_humaneval_test(sample, problems, example_test=False):
         for pkg in IMPORT_HELPER["go"]:
             if pkg not in test_setup:
                 p = pkg.split("/")[-1]
-                if p + "." in code:
+                if f"{p}." in code:
                     other_pkgs.append(f"\"{pkg}\"")
         if other_pkgs:
             import_other_pkgs = "import (\n" + "    ".join([p + "\n" for p in other_pkgs]) + ")"
@@ -83,14 +82,13 @@ def process_humaneval_test(sample, problems, example_test=False):
 
 
 def stream_jsonl_all(filename: str) -> Iterable[Dict]:
-    results = []
     if filename.endswith(".gz"):
         fp = gzip.open(open(filename, "rb"), "rt")
     else:
         fp = open(filename, "r")
-    for line in fp:
-        if any(not x.isspace() for x in line):
-            results.append(json.loads(line))
+    results = [
+        json.loads(line) for line in fp if any(not x.isspace() for x in line)
+    ]
     fp.close()
 
     return results
@@ -114,10 +112,7 @@ def evaluate_functional_correctness(
                             dataset_type="humaneval")
     sample_jsonl = stream_jsonl_all(input_file)
 
-    if example_test:
-        suffix = "_example_test.jsonl"
-    else:
-        suffix = "_results.jsonl"
+    suffix = "_example_test.jsonl" if example_test else "_results.jsonl"
     if out_dir is not None:
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
@@ -128,11 +123,7 @@ def evaluate_functional_correctness(
     if "/codegeex/benchmark/humaneval-x/" in input_file:
         test_groundtruth = True
 
-    if "-to-" in input_file:
-        translation_mode = True
-    else:
-        translation_mode = False
-
+    translation_mode = "-to-" in input_file
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
 
         futures = []
@@ -188,11 +179,7 @@ def evaluate_functional_correctness(
                 n_samples += 1
 
         print(completion_id)
-        if len(completion_id) == len(problems):
-            evaluate_pass_at_k = True
-        else:
-            evaluate_pass_at_k = False
-
+        evaluate_pass_at_k = len(completion_id) == len(problems)
         print("Running test suites...")
         for future in tqdm(as_completed(futures), total=len(futures)):
             result = future.result()

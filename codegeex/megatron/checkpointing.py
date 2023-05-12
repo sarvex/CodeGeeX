@@ -81,10 +81,7 @@ def ensure_directory_exists(filename):
 
 def get_checkpoint_name(checkpoints_path, iteration, release=False):
     """A unified checkpoint name."""
-    if release:
-        directory = ""
-    else:
-        directory = f"global_step{iteration}"
+    directory = "" if release else f"global_step{iteration}"
     # Use both the tensor and pipeline MP rank.
     if mpu.get_pipeline_model_parallel_world_size() == 1:
         return os.path.join(
@@ -126,12 +123,12 @@ def save_checkpoint(iteration, model, optimizer, lr_scheduler):
     ):
 
         # Arguments, iteration, and model.
-        state_dict = {}
-        state_dict["args"] = args
-        state_dict["checkpoint_version"] = 3.0
-        state_dict["iteration"] = iteration
-        state_dict["tokens"] = args.consumed_train_tokens
-
+        state_dict = {
+            "args": args,
+            "checkpoint_version": 3.0,
+            "iteration": iteration,
+            "tokens": args.consumed_train_tokens,
+        }
         # DeepSpeed saves the model/optimizer/scheduler
         if not args.deepspeed:
             if len(model) == 1:
@@ -250,33 +247,33 @@ def fix_query_key_value_ordering(model, checkpoint_version):
     """Fix up query/key/value matrix ordering if checkpoint
     version is smaller than 2.0
     """
-    if checkpoint_version < 2.0:
-        if isinstance(model, list):
-            assert len(model) == 1
-            model = model[0]
-        for name, param in model.named_parameters():
-            if name.endswith((".query_key_value.weight", ".query_key_value.bias")):
-                if checkpoint_version == 0:
-                    fixed_param = _transpose_first_dim(param.data, 3, True, model)
-                elif checkpoint_version == 1.0:
-                    fixed_param = _transpose_first_dim(param.data, 3, False, model)
-                else:
-                    print_rank_0(f"Invalid checkpoint version {checkpoint_version}.")
-                    sys.exit()
-                param.data.copy_(fixed_param)
-            if name.endswith((".key_value.weight", ".key_value.bias")):
-                if checkpoint_version == 0:
-                    fixed_param = _transpose_first_dim(param.data, 2, True, model)
-                elif checkpoint_version == 1.0:
-                    fixed_param = _transpose_first_dim(param.data, 2, False, model)
-                else:
-                    print_rank_0(f"Invalid checkpoint version {checkpoint_version}.")
-                    sys.exit()
-                param.data.copy_(fixed_param)
-        print_rank_0(
-            " successfully fixed query-key-values ordering for"
-            " checkpoint version {}".format(checkpoint_version)
-        )
+    if checkpoint_version >= 2.0:
+        return
+    if isinstance(model, list):
+        assert len(model) == 1
+        model = model[0]
+    for name, param in model.named_parameters():
+        if name.endswith((".query_key_value.weight", ".query_key_value.bias")):
+            if checkpoint_version == 0:
+                fixed_param = _transpose_first_dim(param.data, 3, True, model)
+            elif checkpoint_version == 1.0:
+                fixed_param = _transpose_first_dim(param.data, 3, False, model)
+            else:
+                print_rank_0(f"Invalid checkpoint version {checkpoint_version}.")
+                sys.exit()
+            param.data.copy_(fixed_param)
+        if name.endswith((".key_value.weight", ".key_value.bias")):
+            if checkpoint_version == 0:
+                fixed_param = _transpose_first_dim(param.data, 2, True, model)
+            elif checkpoint_version == 1.0:
+                fixed_param = _transpose_first_dim(param.data, 2, False, model)
+            else:
+                print_rank_0(f"Invalid checkpoint version {checkpoint_version}.")
+                sys.exit()
+            param.data.copy_(fixed_param)
+    print_rank_0(
+        f" successfully fixed query-key-values ordering for checkpoint version {checkpoint_version}"
+    )
 
 
 def load_deepspeed_state(model):
@@ -285,10 +282,9 @@ def load_deepspeed_state(model):
     load_dir = args.load
     if os.path.isdir(load_dir):
         model_state_paths = glob(os.path.join(load_dir, "*model_states.pt"))
-        assert len(model_state_paths) == 1, (
-            "only support loading deepspeed checkpoint of model parallel size 1"
-            ", but got {}".format(model_state_paths)
-        )
+        assert (
+            len(model_state_paths) == 1
+        ), f"only support loading deepspeed checkpoint of model parallel size 1, but got {model_state_paths}"
         model_state_path = model_state_paths[0]
     else:
         model_state_path = load_dir
@@ -316,9 +312,7 @@ def load_checkpoint(
     if args.deepspeed:
         loaded_dir, state_dict = model[0].load_checkpoint(load_dir)
         if loaded_dir is None:
-            print_rank_0(
-                "WARNING: could not find the metadata file {} ".format(load_dir)
-            )
+            print_rank_0(f"WARNING: could not find the metadata file {load_dir} ")
             print_rank_0(
                 "    will not load any checkpoints and will start from " "random"
             )
@@ -334,12 +328,10 @@ def load_checkpoint(
             # Read the tracker file and set the iteration.
             tracker_filename = get_checkpoint_tracker_filename(load_dir)
 
+            iteration = 0
             # If no tracker file, return iretation zero.
             if not os.path.isfile(tracker_filename):
-                print_rank_0(
-                    "WARNING: could not find the metadata file {} ".format(tracker_filename)
-                )
-                iteration = 0
+                print_rank_0(f"WARNING: could not find the metadata file {tracker_filename} ")
                 release = True
                 checkpoint_name = get_checkpoint_name(load_dir, iteration, release)
                 if not os.path.isfile(checkpoint_name):
@@ -348,9 +340,6 @@ def load_checkpoint(
                     )
                     return 0
             else:
-                # Otherwise, read the tracker file and either set the iteration or
-                # mark it as a release checkpoint.
-                iteration = 0
                 release = False
                 with open(tracker_filename, "r") as f:
                     metastring = f.read().strip()
@@ -359,21 +348,17 @@ def load_checkpoint(
                     except ValueError:
                         release = metastring == "release"
                         if not release:
-                            print_rank_0(
-                                "ERROR: Invalid metadata file {}. Exiting".format(
-                                    tracker_filename
-                                )
-                            )
+                            print_rank_0(f"ERROR: Invalid metadata file {tracker_filename}. Exiting")
                             sys.exit()
 
-                assert iteration > 0 or release, "error parsing metadata file {}".format(
-                    tracker_filename
-                )
+                assert (
+                    iteration > 0 or release
+                ), f"error parsing metadata file {tracker_filename}"
 
                 # Checkpoint.
                 checkpoint_name = get_checkpoint_name(load_dir, iteration, release)
                 print_rank_0(f" loading checkpoint from {args.load} at iteration {iteration}")
-                
+
 
         # Load the checkpoint.
         try:
@@ -413,8 +398,7 @@ def load_checkpoint(
                 iteration = state_dict["total_iters"]
             except KeyError:
                 print_rank_0(
-                    "A metadata file exists but unable to load "
-                    "iteration from checkpoint {}, exiting".format(checkpoint_name)
+                    f"A metadata file exists but unable to load iteration from checkpoint {checkpoint_name}, exiting"
                 )
                 sys.exit()
 
@@ -434,44 +418,35 @@ def load_checkpoint(
     else:
         print_rank_0("could not find arguments in the checkpoint ...")
 
-    # Model.
     if not args.deepspeed:
-        if release:
-            if len(model) == 1:
-                model[0].load_state_dict(state_dict["module"], strict=strict)
-            else:
-                for i in range(len(model)):
-                    mpu.set_virtual_pipeline_model_parallel_rank(i)
-                    model[i].load_state_dict(state_dict["model%d" % i], strict=strict)
+        if len(model) == 1:
+            model[0].load_state_dict(state_dict["module"], strict=strict)
         else:
-            if len(model) == 1:
-                model[0].load_state_dict(state_dict["module"], strict=strict)
-            else:
-                for i in range(len(model)):
-                    mpu.set_virtual_pipeline_model_parallel_rank(i)
-                    model[i].load_state_dict(state_dict["model%d" % i], strict=strict)
-
+            for i in range(len(model)):
+                mpu.set_virtual_pipeline_model_parallel_rank(i)
+                model[i].load_state_dict(state_dict["model%d" % i], strict=strict)
     # Fix up query/key/value matrix ordering if needed
     checkpoint_version = get_checkpoint_version()
     print_rank_0(f" checkpoint version {checkpoint_version}")
     fix_query_key_value_ordering(model, checkpoint_version)
 
     # Optimizer.
-    if not args.deepspeed:
-        if not release and not args.finetune and not args.no_load_optim:
-            try:
-                if optimizer is not None:
-                    optimizer.load_state_dict(state_dict["optimizer"])
-                if lr_scheduler is not None:
-                    lr_scheduler.load_state_dict(state_dict["lr_scheduler"])
-            except KeyError:
-                print_rank_0(
-                    "Unable to load optimizer from checkpoint {}. "
-                    "Specify --no-load-optim or --finetune to prevent "
-                    "attempting to load the optimizer state, "
-                    "exiting ...".format(checkpoint_name)
-                )
-                sys.exit()
+    if (
+        not args.deepspeed
+        and not release
+        and not args.finetune
+        and not args.no_load_optim
+    ):
+        try:
+            if optimizer is not None:
+                optimizer.load_state_dict(state_dict["optimizer"])
+            if lr_scheduler is not None:
+                lr_scheduler.load_state_dict(state_dict["lr_scheduler"])
+        except KeyError:
+            print_rank_0(
+                f"Unable to load optimizer from checkpoint {checkpoint_name}. Specify --no-load-optim or --finetune to prevent attempting to load the optimizer state, exiting ..."
+            )
+            sys.exit()
 
     # rng states.
     if not release and not args.finetune and not args.no_load_rng:
@@ -486,10 +461,7 @@ def load_checkpoint(
             mpu.get_cuda_rng_tracker().set_states(state_dict["rng_tracker_states"])
         except KeyError:
             print_rank_0(
-                "Unable to load rng state from checkpoint {}. "
-                "Specify --no-load-rng or --finetune to prevent "
-                "attempting to load the rng state, "
-                "exiting ...".format(checkpoint_name)
+                f"Unable to load rng state from checkpoint {checkpoint_name}. Specify --no-load-rng or --finetune to prevent attempting to load the rng state, exiting ..."
             )
             sys.exit()
 
@@ -526,9 +498,7 @@ def load_biencoder_checkpoint(
     checkpoint_name = get_checkpoint_name(load_path, iteration, False)
     if mpu.get_data_parallel_rank() == 0:
         print(
-            "global rank {} is loading checkpoint {}".format(
-                torch.distributed.get_rank(), checkpoint_name
-            )
+            f"global rank {torch.distributed.get_rank()} is loading checkpoint {checkpoint_name}"
         )
 
     state_dict = torch.load(checkpoint_name, map_location="cpu")
@@ -544,6 +514,6 @@ def load_biencoder_checkpoint(
     torch.distributed.barrier()
 
     if mpu.get_data_parallel_rank() == 0:
-        print(" successfully loaded {}".format(checkpoint_name))
+        print(f" successfully loaded {checkpoint_name}")
 
     return model

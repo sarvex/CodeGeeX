@@ -53,7 +53,7 @@ class ConstantGradScaler(MegatronGradScaler):
         pass
 
     def state_dict(self):
-        return dict()
+        return {}
 
     def load_state_dict(self, state_dict):
         pass
@@ -120,11 +120,11 @@ class DynamicGradScaler(MegatronGradScaler):
                 self._scale = self._scale * self.growth_factor
 
     def state_dict(self):
-        state_dict = {}
-        state_dict["scale"] = self._scale
-        state_dict["growth_tracker"] = self._growth_tracker
-        state_dict["hysteresis_tracker"] = self._hysteresis_tracker
-        return state_dict
+        return {
+            "scale": self._scale,
+            "growth_tracker": self._growth_tracker,
+            "hysteresis_tracker": self._hysteresis_tracker,
+        }
 
     def load_state_dict(self, state_dict):
         self._scale = state_dict["scale"].cuda(torch.cuda.current_device())

@@ -105,13 +105,25 @@ def _build_train_valid_test_datasets(
     """Build train, valid, and test datasets."""
 
     # Indexed dataset.
-    assert os.path.exists(data_prefix + "_input_ids.bin"), f"Input tokens datafile not found: {data_prefix}_input_ids.bin"
-    assert os.path.exists(data_prefix + "_attention_mask.bin"), f"Attention mask datafile not found: {data_prefix}_attention_mask.bin"
-    assert os.path.exists(data_prefix + "_labels.bin"), f"Labels datafile not found: {data_prefix}_labels.bin"
+    assert os.path.exists(
+        f"{data_prefix}_input_ids.bin"
+    ), f"Input tokens datafile not found: {data_prefix}_input_ids.bin"
+    assert os.path.exists(
+        f"{data_prefix}_attention_mask.bin"
+    ), f"Attention mask datafile not found: {data_prefix}_attention_mask.bin"
+    assert os.path.exists(
+        f"{data_prefix}_labels.bin"
+    ), f"Labels datafile not found: {data_prefix}_labels.bin"
 
-    input_ids_indexed_dataset = get_indexed_dataset_(data_prefix + "_input_ids", data_impl, skip_warmup)
-    attention_mask_indexed_dataset = get_indexed_dataset_(data_prefix + "_attention_mask", data_impl, skip_warmup)
-    labels_indexed_dataset = get_indexed_dataset_(data_prefix + "_labels", data_impl, skip_warmup)
+    input_ids_indexed_dataset = get_indexed_dataset_(
+        f"{data_prefix}_input_ids", data_impl, skip_warmup
+    )
+    attention_mask_indexed_dataset = get_indexed_dataset_(
+        f"{data_prefix}_attention_mask", data_impl, skip_warmup
+    )
+    labels_indexed_dataset = get_indexed_dataset_(
+        f"{data_prefix}_labels", data_impl, skip_warmup
+    )
 
     total_num_of_documents = input_ids_indexed_dataset.sizes.shape[0]
     splits = get_train_valid_test_split_(splits_string, total_num_of_documents)
@@ -171,7 +183,7 @@ def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
         " > finished creating indexed dataset in {:4f} "
         "seconds".format(time.time() - start_time)
     )
-    print_rank_0("    number of documents: {}".format(indexed_dataset.sizes.shape[0]))
+    print_rank_0(f"    number of documents: {indexed_dataset.sizes.shape[0]}")
 
     return indexed_dataset
 
@@ -241,13 +253,11 @@ class PromptDataset(torch.utils.data.Dataset):
         attention_mask = self.attention_mask_index_dataset[doc_idx]
         labels = self.labels_indexed_dataset[doc_idx]
 
-        res = {
+        return {
             "input_ids": np.array(input_ids, dtype=np.int64),
             "attention_mask": np.array(attention_mask, dtype=np.int64),
             "labels": np.array(labels, dtype=np.int64),
         }
-
-        return res
 
 
 def _build_index_mappings(
@@ -269,27 +279,28 @@ def _build_index_mappings(
     np_rng = np.random.RandomState(seed=seed)
 
     _filename = data_prefix
-    _filename += "_{}_indexmap".format(name)
-    _filename += "_{}ns".format(num_samples)
-    _filename += "_{}sl".format(seq_length)
-    _filename += "_{}s".format(seed)
-    doc_idx_filename = _filename + "_doc_idx.npy"
+    _filename += f"_{name}_indexmap"
+    _filename += f"_{num_samples}ns"
+    _filename += f"_{seq_length}sl"
+    _filename += f"_{seed}s"
+    doc_idx_filename = f"{_filename}_doc_idx.npy"
 
-    if torch.distributed.get_rank() == 0:
-        if not os.path.isfile(doc_idx_filename):
-            print_rank_0(
-                " > WARNING: could not find index map files, building "
-                "the indices on rank 0 ..."
-            )
+    if torch.distributed.get_rank() == 0 and not os.path.isfile(
+        doc_idx_filename
+    ):
+        print_rank_0(
+            " > WARNING: could not find index map files, building "
+            "the indices on rank 0 ..."
+        )
 
-            start_time = time.time()
-            doc_idx = _build_doc_idx(documents, num_epochs, np_rng, False)[:num_samples]
-            np.save(doc_idx_filename, doc_idx, allow_pickle=True)
+        start_time = time.time()
+        doc_idx = _build_doc_idx(documents, num_epochs, np_rng, False)[:num_samples]
+        np.save(doc_idx_filename, doc_idx, allow_pickle=True)
 
-            print_rank_0(
-                " > elasped time to build and save doc-idx mapping "
-                "(seconds): {:4f}".format(time.time() - start_time)
-            )
+        print_rank_0(
+            " > elasped time to build and save doc-idx mapping "
+            "(seconds): {:4f}".format(time.time() - start_time)
+        )
 
     # This should be a barrier but nccl barrier assumes
     # device_index=rank which is not the case for model
@@ -303,10 +314,10 @@ def _build_index_mappings(
     )
     # Load mappings.
     start_time = time.time()
-    print_rank_0(" > loading doc-idx mapping from {}".format(doc_idx_filename))
+    print_rank_0(f" > loading doc-idx mapping from {doc_idx_filename}")
     doc_idx = np.load(doc_idx_filename, allow_pickle=True, mmap_mode="r")
-    print_rank_0("    total number of samples: {}".format(doc_idx.shape[0]))
-    print_rank_0("    total number of epochs: {}".format(num_epochs))
+    print_rank_0(f"    total number of samples: {doc_idx.shape[0]}")
+    print_rank_0(f"    total number of epochs: {num_epochs}")
 
     return doc_idx
 

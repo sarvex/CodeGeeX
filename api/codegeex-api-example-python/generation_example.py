@@ -15,12 +15,11 @@ PROMPT = "from typing import List\n\ndef has_close_elements(numbers: List[float]
          "[1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    \"\"\"\n"
 NUMBER = 3
 LANG = "Python"
-request_url = "https://tianqi.aminer.cn/api/v2/"
 api = 'multilingual_code_generate'
 
 # Request is in json format. 指定请求参数格式为json
 headers = {'Content-Type': 'application/json'}
-request_url = request_url + api
+request_url = f"https://tianqi.aminer.cn/api/v2/{api}"
 data = {
     "apikey": API_KEY,
     "apisecret": API_SECRET,
@@ -31,8 +30,9 @@ data = {
 
 
 def main():
-    response = requests.post(request_url, headers=headers, data=json.dumps(data))
-    if response:
+    if response := requests.post(
+        request_url, headers=headers, data=json.dumps(data)
+    ):
         print(response.json())
 
 

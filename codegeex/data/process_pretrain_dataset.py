@@ -25,25 +25,25 @@ def try_format_code(code: str):
     except Exception as e:
         res = code
         print(e)
-        print("Wrong python format: {}".format(code))
+        print(f"Wrong python format: {code}")
     return res
 
 
 def load_pretrain_dataset(dataset_path: Union[str, List[str]]) -> Dict:
     if type(dataset_path) is str:
         dataset_path = [dataset_path]
-    
+
     for p in dataset_path:
-        if not os.path.isdir(p):
-            if p.endswith(".gz") or p.endswith(".jsonl"):
-                print(f"loading from {p}")
-                yield from stream_jsonl(p)
-        else:
-            p_list = glob.glob(p + "/*")
+        if os.path.isdir(p):
+            p_list = glob.glob(f"{p}/*")
             for p_ in p_list:
                 if p_.endswith(".gz") or p_.endswith(".jsonl"):
                     print(f"loading from {p_}")
                     yield from stream_jsonl(p_)
+
+        elif p.endswith(".gz") or p.endswith(".jsonl"):
+            print(f"loading from {p}")
+            yield from stream_jsonl(p)
           
             
 def process_sample(
@@ -51,11 +51,7 @@ def process_sample(
     language: str=None, 
     mode: str="pretrain",
 ) -> Iterable[PromptSample]:
-    if mode == "pretrain":
-        prompt = ""
-    else:
-        prompt = sample["prompt"]
-    
+    prompt = "" if mode == "pretrain" else sample["prompt"]
     try:
         if language is not None and language in LANGUAGE_TAG.keys():
             code = LANGUAGE_TAG[language] + "\n" + sample["code"]
@@ -65,7 +61,7 @@ def process_sample(
         print(e)
         print("The key 'code' is missing in data. Aborted")
         exit(0)
-        
+
     yield PromptSample(prompt, code)
 
 
@@ -90,7 +86,7 @@ def main(
     seq_len: int = 2048,
 ):
     DATA_KEYS = ["input_ids", "attention_mask", "labels"]
-    
+
     # create output dir
     os.makedirs(os.path.dirname(output_prefix), exist_ok=True)
 
@@ -108,8 +104,8 @@ def main(
     builders = {}
 
     for key in DATA_KEYS:
-        output_bin_files[key] = "{}_{}.bin".format(output_prefix, key)
-        output_idx_files[key] = "{}_{}.idx".format(output_prefix, key)
+        output_bin_files[key] = f"{output_prefix}_{key}.bin"
+        output_idx_files[key] = f"{output_prefix}_{key}.idx"
         builders[key] = make_mmap_builder(
             output_bin_files[key],
             vocab_size=None,  # magic number, should change it
@@ -123,7 +119,7 @@ def main(
         discard_overlong=discard_overlong,
         sliding_stride=sliding_stride,
         eod_token=pad_token_id)
-    
+
     processor.start_time = perf_counter()
     doc_iter = pool.imap_unordered(processor.process_sample_strict,
                                    prompt_dataset, 
