@@ -248,7 +248,7 @@ def main(node_rank: int, local_rank: int, master_port: int, num_devices: int):
 
 
 def server():
-    print(f"[ server ] starting ...", flush=True)
+    print("[ server ] starting ...", flush=True)
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--channel-ip",
@@ -319,7 +319,7 @@ def server():
     # setup zeromq channel
     print(f"[ server ] starting up on port {args.channel_port}", flush=True)
     context = zmq.Context()
-    print(f"[ server ] creating socket", flush=True)
+    print("[ server ] creating socket", flush=True)
     socket = context.socket(zmq.REP)
     print(f"[ server ] binding to port {args.channel_port}", flush=True)
     socket.bind(f"tcp://*:{args.channel_port}")
@@ -333,23 +333,16 @@ def server():
     running_workers = args.gen_node_world_size * torch.cuda.device_count()
     num_finished = 0
 
-    print(f"[ server ] listening for requests ...", flush=True)
+    print("[ server ] listening for requests ...", flush=True)
     start_time = time.perf_counter()
     while True:
         # Wait for next request from client
         msg = socket.recv_json()
-        rank = msg["rank"]
         action = msg["action"]
 
         if action == "pull":
-            if len(remaining_entries) == 0:
-                print(f"[ server ] Shutting down worker {rank}", flush=True)
-                socket.send_json({"task_id": None})
-                running_workers -= 1
-                if running_workers == 0:
-                    print(f"[ server ] All workers finished", flush=True)
-                    break
-            else:
+            rank = msg["rank"]
+            if remaining_entries:
                 entry = remaining_entries.pop()
                 time_elapsed = time.perf_counter() - start_time
                 print(f"[ server ] Sending entry {entry['task_id']} to worker {rank}", flush=True)
@@ -368,17 +361,22 @@ def server():
                     flush=True,
                 )
                 socket.send_json({"task_id": entry})
-        else:
-            if action == "success":
-                print(f"[ server ] {msg['task_id']} is finished", flush=True)
-                socket.send_json({"pong": 1})
             else:
-                print(f"[ server ] {msg['task_id']} is not finished", flush=True)
-                remaining_entries.append(msg['task_id'])
-                socket.send_json({"pong": 1})
-                break
-
+                print(f"[ server ] Shutting down worker {rank}", flush=True)
+                socket.send_json({"task_id": None})
+                running_workers -= 1
+                if running_workers == 0:
+                    print("[ server ] All workers finished", flush=True)
+                    break
+        elif action == "success":
+            print(f"[ server ] {msg['task_id']} is finished", flush=True)
+            socket.send_json({"pong": 1})
             num_finished += 1
+        else:
+            print(f"[ server ] {msg['task_id']} is not finished", flush=True)
+            remaining_entries.append(msg['task_id'])
+            socket.send_json({"pong": 1})
+            break
 
 
 if __name__ == "__main__":
@@ -401,7 +399,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_known_args()[0]
 
-    print("start method: " + torch.multiprocessing.get_start_method())
+    print(f"start method: {torch.multiprocessing.get_start_method()}")
 
     processes = []
     num_devices = torch.cuda.device_count()
@@ -410,11 +408,14 @@ if __name__ == "__main__":
     hosts = [host.strip() for host in hosts]
     master_port = args.master_port
 
-    node_rank = None
-    for i in range(len(hosts)):
-        if hosts[i] == socket.gethostbyname(socket.gethostname()):
-            node_rank = i
-            break
+    node_rank = next(
+        (
+            i
+            for i in range(len(hosts))
+            if hosts[i] == socket.gethostbyname(socket.gethostname())
+        ),
+        None,
+    )
     assert (
             node_rank is not None
     ), f"Could not find hostname ({socket.gethostbyname(socket.gethostname())}) in hostlist"
@@ -422,14 +423,13 @@ if __name__ == "__main__":
     # launch server
     if socket.gethostbyname(socket.gethostname()) == hosts[0]:
         server_process = torch.multiprocessing.Process(target=server)
-        print(f"Launching server ...")
+        print("Launching server ...")
         server_process.start()
         processes.append(server_process)
 
     for i in range(num_devices):
         local_rank = i
-        print(f"launching local rank {i}")
-
+        print(f"launching local rank {local_rank}")
         p = torch.multiprocessing.Process(
             target=main,
             args=(node_rank, local_rank, master_port, num_devices),

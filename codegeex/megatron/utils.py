@@ -41,9 +41,7 @@ def unwrap_model(model, module_instances=(torchDDP)):
         while isinstance(model_module, module_instances):
             model_module = model_module.module
         unwrapped_model.append(model_module)
-    if not return_list:
-        return unwrapped_model[0]
-    return unwrapped_model
+    return unwrapped_model[0] if not return_list else unwrapped_model
 
 
 def calc_params_l2_norm(model):
@@ -92,17 +90,13 @@ def average_losses_across_data_parallel_group(losses):
 def report_memory(name):
     """Simple GPU memory report."""
     mega_bytes = 1024.0 * 1024.0
-    string = name + " memory (MB)"
-    string += " | allocated: {}".format(torch.cuda.memory_allocated() / mega_bytes)
-    string += " | max allocated: {}".format(
-        torch.cuda.max_memory_allocated() / mega_bytes
-    )
-    string += " | reserved: {}".format(torch.cuda.memory_reserved() / mega_bytes)
-    string += " | max reserved: {}".format(
-        torch.cuda.max_memory_reserved() / mega_bytes
-    )
+    string = f"{name} memory (MB)"
+    string += f" | allocated: {torch.cuda.memory_allocated() / mega_bytes}"
+    string += f" | max allocated: {torch.cuda.max_memory_allocated() / mega_bytes}"
+    string += f" | reserved: {torch.cuda.memory_reserved() / mega_bytes}"
+    string += f" | max reserved: {torch.cuda.max_memory_reserved() / mega_bytes}"
     if mpu.get_data_parallel_rank() == 0:
-        print("[Rank {}] {}".format(torch.distributed.get_rank(), string), flush=True)
+        print(f"[Rank {torch.distributed.get_rank()}] {string}", flush=True)
 
 
 def print_params_min_max_norm(optimizer, iteration):
@@ -151,10 +145,7 @@ def get_ltor_masks_and_position_ids(
     micro_batch_size, seq_length = data.size()
 
     # Attention mask (lower triangular).
-    if reset_attention_mask:
-        att_mask_batch = micro_batch_size
-    else:
-        att_mask_batch = 1
+    att_mask_batch = micro_batch_size if reset_attention_mask else 1
     attention_mask = torch.tril(
         torch.ones((att_mask_batch, seq_length, seq_length), device=data.device)
     ).view(att_mask_batch, 1, seq_length, seq_length)
@@ -205,15 +196,11 @@ def get_parameters_in_billions(model):
     )
 
     approx_parameters_in_billions = sum(
-        [
-            sum(
-                [
-                    p.ds_numel if hasattr(p, "ds_id") else p.nelement()
-                    for p in model_module.parameters()
-                ]
-            )
-            for model_module in model
-        ]
+        sum(
+            p.ds_numel if hasattr(p, "ds_id") else p.nelement()
+            for p in model_module.parameters()
+        )
+        for model_module in model
     )
 
     return approx_parameters_in_billions * gpus_per_model / (1e9)
@@ -221,22 +208,3 @@ def get_parameters_in_billions(model):
 
 def flops_calculator(model, args, iteration_time):
     return  # currently broken
-    gpus_per_model = torch.distributed.get_world_size(
-        group=mpu.get_model_parallel_group()
-    )
-
-    approx_parameters_in_billions = get_parameters_in_billions(model)
-
-    batch_size = args.micro_batch_size * get_num_microbatches()
-
-    giga_flops_per_model_per_train_step = (
-        approx_parameters_in_billions * batch_size * args.seq_length * 2.0 * 4.0
-    )
-
-    effective_tera_flops_per_gpu = giga_flops_per_model_per_train_step / (
-        iteration_time * 1000.0 * gpus_per_model
-    )
-
-    print_rank_0(
-        f"Effective Tera Flops per GPU: {round(effective_tera_flops_per_gpu, 2)} and total parameters {round(approx_parameters_in_billions, 3)} B"
-    )

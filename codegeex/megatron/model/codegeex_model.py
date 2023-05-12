@@ -87,23 +87,20 @@ class CodeGeeXModel(MegatronModule):
 
         if labels is None:
             return output
-        else:
-            if self.fp16_lm_cross_entropy:
-                assert output.dtype == torch.half
-                loss = mpu.vocab_parallel_cross_entropy(output, labels)
-            else:
-                loss = mpu.vocab_parallel_cross_entropy(output.float(), labels)
+        if not self.fp16_lm_cross_entropy:
+            return mpu.vocab_parallel_cross_entropy(output.float(), labels)
 
-            return loss
+        assert output.dtype == torch.half
+        return mpu.vocab_parallel_cross_entropy(output, labels)
 
     def state_dict_for_save_checkpoint(self, destination=None, prefix='',
                                        keep_vars=False):
 
-        state_dict_ = {}
-        state_dict_[self._language_model_key] \
-            = self.language_model.state_dict_for_save_checkpoint(
-            destination, prefix, keep_vars)
-        return state_dict_
+        return {
+            self._language_model_key: self.language_model.state_dict_for_save_checkpoint(
+                destination, prefix, keep_vars
+            )
+        }
 
     def load_state_dict(self, state_dict, strict=True):
         """Customized load."""
@@ -120,8 +117,7 @@ def CrossEntropy(output, labels):
 
     losses = mpu.vocab_parallel_cross_entropy(output.contiguous().float(), labels)
     loss_mask = loss_mask.view(-1)
-    loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
-    return loss
+    return torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
 
 
 class CodeGeeXModelPipe(PipelineModule, MegatronModule):
@@ -134,7 +130,7 @@ class CodeGeeXModelPipe(PipelineModule, MegatronModule):
         init_method = init_method_normal(args.init_method_std)
 
         self.specs = []
-        
+
         # Embedding layer
         self.specs.append(
             TiedLayerSpec(
@@ -194,11 +190,7 @@ class CodeGeeXModelPipe(PipelineModule, MegatronModule):
             )
         )
 
-        if args.checkpoint_activations:
-            interval = args.checkpoint_num_layers
-        else:
-            interval = 0
-
+        interval = args.checkpoint_num_layers if args.checkpoint_activations else 0
         from deepspeed.runtime.pipe.topology import PipeModelDataParallelTopology
 
         topo = PipeModelDataParallelTopology(
